@@ -2,8 +2,8 @@
 export PATH := /snap/bin:$(PATH)
 export CHARM_NAME := slurm-controller
 export CHARM_STORE_GROUP := slurm-charmers
-export CHARM_BUILD_DIR := ./builds
-export CHARM_DEPS_DIR := ./deps
+export CHARM_BUILD_DIR := ./build/builds
+export CHARM_DEPS_DIR := ./build/deps
 export CHARM_PUSH_RESULT := charm-store-push-result.txt
 
 # TARGETS
@@ -17,7 +17,7 @@ integration-test: build ## Run integration tests
 	tox -e integration
 
 build: clean ## Build charm
-	charm build --log-level INFO --output-dir .
+	tox -e build
 
 deploy: build ## Deploy charm 
 	juju deploy $(CHARM_BUILD_DIR)/$(CHARM_NAME)
