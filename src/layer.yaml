@@ -1,4 +1,6 @@
 includes:
-  - 'layer:slurm'
-  - 'interface:slurm-cluster'
+  - 'layer:slurm-v2'
+  - 'layer:leadership'
+  - 'interface:slurm-cluster-v2'
+  - 'interface:slurm-controller-ha-v2'
 repo: 'https://github.com/omnivector-solutions/layer-slurm-controller'

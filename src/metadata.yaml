@@ -1,13 +1,17 @@
-name: slurm-controller
-summary: <Fill in summary here>
-maintainer: Sandor Zeestraten <sandor.zeestraten@ntnu.no>
+name: slurm-controller-v2
+summary: Slurm Controller v2
+maintainer: Dmitrii Shcherbakov <dmitrii.shcherbakov@canonical.com>
 description: |
-  <Multi-line description here>
+  Slurm controller v2.
 tags:
   - slurm
 subordinate: false
 series:
+  - bionic
   - xenial
 provides:
   slurm-cluster:
-    interface: slurm-cluster
+    interface: slurm-cluster-v2
+peers:
+  slurm-controller-ha:
+    interface: slurm-controller-ha-v2
