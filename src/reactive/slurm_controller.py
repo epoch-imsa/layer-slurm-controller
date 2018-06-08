@@ -18,6 +18,10 @@ from charms.slurm.helpers import render_munge_key
 from charms.slurm.helpers import render_slurm_config
 from charms.slurm.helpers import create_state_save_location
 
+from charmhelpers.core.hookenv import (
+    DEBUG,
+    log,
+)
 
 @reactive.only_once()
 @reactive.when('slurm.installed')
@@ -108,11 +112,14 @@ def configure_controller(*args):
         # add prefixed peer data
         peer_data = add_key_prefix(ha_endpoint.peer_data, peer_role)
         controller_conf.update(peer_data)
+    else:
+        peer_data = None
 
     # a controller service is configurable if it is an active controller
     # or a backup controller that knows about an active controller
     is_configurable = is_active or (not is_active and peer_data)
     if is_configurable:
+        log('The controller is configurable ({})'.format(role))
         # Setup slurm dirs and config
         create_state_save_location(context=controller_conf)
         render_slurm_config(context=controller_conf)
@@ -120,6 +127,11 @@ def configure_controller(*args):
         if not host.service_running(SLURMCTLD_SERVICE):
             host.service_start(SLURMCTLD_SERVICE)
         flags.set_flag('slurm-controller.configured')
+    else:
+        log('The controller is NOT configurable ({})'.format(role))
+        if not is_active:
+            hookenv.status_set('maintenance',
+                           'Backup controller is waiting for peer data')
 
     # Send config to nodes
     if is_active:
