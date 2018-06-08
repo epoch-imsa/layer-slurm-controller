@@ -29,3 +29,9 @@ def get_partitions(node_data):
         part_dict[node['partition']]['hosts'].append(node['hostname'])
         part_dict[node['partition']]['default'] = node['default']
     return dict(part_dict)
+
+
+def add_key_prefix(d, prefix):
+    return {'{key_prefix}_{key}'
+            .format(key_prefix=prefix, key=k): d[k]
+            for k in d.keys()}

@@ -4,8 +4,10 @@ import charms.reactive.flags as flags
 import charmhelpers.core.hookenv as hookenv
 import charmhelpers.core.host as host
 import charms.reactive.relations as relations
+import copy
 
 from charms.slurm.controller import get_partitions
+from charms.slurm.controller import add_key_prefix
 
 from charms.slurm.helpers import MUNGE_SERVICE
 from charms.slurm.helpers import MUNGE_KEY_PATH
@@ -46,10 +48,15 @@ def set_active_controller():
     '''
     leadership.leader_set(active_controller=hookenv.local_unit())
 
+# TODO: add slurm DBD to when_any as this is something that
 
-@reactive.when('endpoint.slurm-cluster.changed')
+# cluster endpoint must be present for a controller to proceed with initial
+# configuration
+@reactive.when('endpoint.slurm-cluster.joined')
+@reactive.when_any('endpoint.slurm-cluster.changed',
+                   'endpoint.slurm-controller-ha.changed')
 @reactive.when('leadership.set.active_controller')
-def configure_controller(cluster_endpoint):
+def configure_controller(*args):
     ''' A controller is only configured after leader election is
     performed.
     '''
@@ -59,9 +66,20 @@ def configure_controller(cluster_endpoint):
     # be uniformly prepared for consumption on the worker side as controller
     # and node layers share a common layer with a slurm.conf template
     # mostly identical on all nodes
-    role = ('active_controller' if leadership.leader_get(
-        'active_controller') == hookenv.local_unit() else 'backup_controller')
+    is_active = (
+        leadership.leader_get('active_controller') == hookenv.local_unit())
 
+    roles = {
+        True: 'active_controller',
+        False: 'backup_controller',
+    }
+
+    role = roles[is_active]
+    peer_role =  roles[not is_active]
+
+    # the endpoint is present as joined is required for this handler
+    cluster_endpoint = relations.endpoint_from_flag(
+        'endpoint.slurm-cluster.joined')
     # Get node configs
     nodes = cluster_endpoint.get_node_data()
     partitions = get_partitions(nodes)
@@ -73,56 +91,52 @@ def configure_controller(cluster_endpoint):
 
     # the whole charm config will be sent to related nodes
     # with some additional options added via dict update
-    config = hookenv.config()
-    config.update({
+    controller_conf = copy.deepcopy(hookenv.config())
+    controller_conf.update({
         'nodes': nodes,
         'partitions': partitions,
     })
 
-    net_details = cluster_endpoint.network_details()
-    prefixed_net_details = {'{role_prefix}_{key}'
-                            .format(role_prefix=role, key=k): net_details[k]
-                            for k in net_details.keys()}
+    net_details = add_key_prefix(cluster_endpoint.network_details(), role)
     # update the config dict used as a context in rendering to have prefixed
     # keys for network details based on a current unit role (active or backup)
-    config.update(prefixed_net_details)
-
-    # TODO: endpoint_from_flag for the peer relation and retrieve a peer
-    # peer_config = controller_ha_endpoint.peer_config
-    # config.update(peer_config)
-    # peer_config should have a role as a key and its config as a value dict
-    # retrieve an endpoint object for the HA peer relation
+    controller_conf.update(net_details)
 
     ha_endpoint = relations.endpoint_from_flag(
         'endpoint.slurm-controller-ha.joined')
     if ha_endpoint:
-        # update the config dict with the peer data which may contain either
-        # active_controller data or backup_controller data
-        config.update(ha_endpoint.peer_data)
-    # Setup slurm dirs and config
-    create_state_save_location(context=config)
-    render_slurm_config(context=config)
+        # add prefixed peer data
+        peer_data = add_key_prefix(ha_endpoint.peer_data, peer_role)
+        controller_conf.update(peer_data)
 
-    # Make sure slurmctld is running
-    if not host.service_running(SLURMCTLD_SERVICE):
-        host.service_start(SLURMCTLD_SERVICE)
+    # a controller service is configurable if it is an active controller
+    # or a backup controller that knows about an active controller
+    is_configurable = is_active or (not is_active and peer_data)
+    if is_configurable:
+        # Setup slurm dirs and config
+        create_state_save_location(context=controller_conf)
+        render_slurm_config(context=controller_conf)
+        # Make sure slurmctld is running
+        if not host.service_running(SLURMCTLD_SERVICE):
+            host.service_start(SLURMCTLD_SERVICE)
+        flags.set_flag('slurm-controller.configured')
 
     # Send config to nodes
-    if role == 'active_controller':
+    if is_active:
         # TODO: wait until a peer acknowledges that it has cleared
         # its side of a node-facing relation - this needs to be done
         # in case an active controller is changed to a different one
-        cluster_endpoint.send_controller_config(config)
+        # to avoid split-brain conditions on node units
+        cluster_endpoint.send_controller_config(controller_conf)
     else:
         # otherwise make sure that all keys are cleared
         # this is relevant for a former active controller
         cluster_endpoint.send_controller_config({
-            k: None for k in config.keys()
+            k: None for k in controller_conf.keys()
         })
 
     # clear the changed flag as it is not cleared automatically
     flags.clear_flag('endpoint.slurm-cluster.changed')
-    flags.set_flag('slurm-controller.configured')
 
 
 @reactive.when('endpoint.slurm-cluster.joined')
