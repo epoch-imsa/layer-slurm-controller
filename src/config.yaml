@@ -1,4 +1,10 @@
 options:
+  munge_key:
+    type: string
+    default: null
+    description: |
+      Munge key is used for authentication across the cluster and acts as a
+      pre-shared key.
   mpi_default:
     type: string
     default: none

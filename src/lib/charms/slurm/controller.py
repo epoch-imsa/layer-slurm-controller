@@ -1,4 +1,6 @@
 import collections
+import charms.leadership as leadership
+import charmhelpers.core.hookenv as hookenv
 
 
 def get_partitions(node_data):
@@ -35,3 +37,10 @@ def add_key_prefix(d, prefix):
     return {'{key_prefix}_{key}'
             .format(key_prefix=prefix, key=k): d[k]
             for k in d.keys()}
+
+
+def is_active_controller():
+    return leadership.leader_get('active_controller') == hookenv.local_unit())
+
+
+ROLES = {True: 'active_controller', False: 'backup_controller'}

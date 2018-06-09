@@ -6,40 +6,34 @@ import charmhelpers.core.host as host
 import charms.reactive.relations as relations
 import copy
 
-from charms.slurm.controller import get_partitions
-from charms.slurm.controller import add_key_prefix
+import charms.slurm.helpers as helpers
+import charms.slurm.controller as controller
 
-from charms.slurm.helpers import MUNGE_SERVICE
-from charms.slurm.helpers import MUNGE_KEY_PATH
-from charms.slurm.helpers import SLURMD_SERVICE
-from charms.slurm.helpers import SLURM_CONFIG_PATH
-from charms.slurm.helpers import SLURMCTLD_SERVICE
-from charms.slurm.helpers import render_munge_key
-from charms.slurm.helpers import render_slurm_config
-from charms.slurm.helpers import create_state_save_location
-
-from charmhelpers.core.hookenv import (
-    DEBUG,
-    log,
-)
 
 @reactive.only_once()
 @reactive.when('slurm.installed')
 def initial_setup():
     hookenv.status_set('maintenance', 'Initial setup of slurm-controller')
     # Disable slurmd on controller
-    host.service_pause(SLURMD_SERVICE)
-    # Setup munge key
-    munge_key = host.pwgen(length=4096)
-    hookenv.config().update({'munge_key': munge_key})
-    render_munge_key(context=hookenv.config())
+    host.service_pause(helpers.SLURMD_SERVICE)
+
+    munge_key = hookenv.config().get('munge_key')
+
+    # Generate munge key if it has not been provided via charm config
+    # and update persistent configuration for future use.
+    # Munge key must be the same on all nodes in a given cluster so
+    # it will be provided to a backup controller and nodes via relations
+    if not munge_key:
+        munge_key = host.pwgen(length=4096)
+        hookenv.config().update({'munge_key': munge_key})
+    helpers.render_munge_key(context=hookenv.config())
 
 
 @reactive.when_not('endpoint.slurm-cluster.joined')
 def missing_nodes():
     hookenv.status_set('blocked', 'Missing relation to slurm-node')
     flags.clear_flag('slurm-controller.configured')
-    host.service_stop(SLURMCTLD_SERVICE)
+    host.service_stop(helpers.SLURMCTLD_SERVICE)
 
 
 @reactive.when('leadership.is_leader')
@@ -54,8 +48,13 @@ def set_active_controller():
 
 # TODO: add slurm DBD to when_any as this is something that
 
+# TODO: split configure_controller into stages as it is hard to read it, plus
+# it has logic for both HA handling and node workflow
+
 # cluster endpoint must be present for a controller to proceed with initial
 # configuration
+
+
 @reactive.when('endpoint.slurm-cluster.joined')
 @reactive.when_any('endpoint.slurm-cluster.changed',
                    'endpoint.slurm-controller-ha.changed')
@@ -70,23 +69,17 @@ def configure_controller(*args):
     # be uniformly prepared for consumption on the worker side as controller
     # and node layers share a common layer with a slurm.conf template
     # mostly identical on all nodes
-    is_active = (
-        leadership.leader_get('active_controller') == hookenv.local_unit())
+    is_active = controller.is_active_controller()
 
-    roles = {
-        True: 'active_controller',
-        False: 'backup_controller',
-    }
-
-    role = roles[is_active]
-    peer_role =  roles[not is_active]
+    role = controller.ROLES[is_active]
+    peer_role = controller.ROLES[not is_active]
 
     # the endpoint is present as joined is required for this handler
     cluster_endpoint = relations.endpoint_from_flag(
         'endpoint.slurm-cluster.joined')
     # Get node configs
     nodes = cluster_endpoint.get_node_data()
-    partitions = get_partitions(nodes)
+    partitions = controller.get_partitions(nodes)
 
     # relation-changed does not necessarily mean that data will be provided
     if not partitions:
@@ -101,7 +94,8 @@ def configure_controller(*args):
         'partitions': partitions,
     })
 
-    net_details = add_key_prefix(cluster_endpoint.network_details(), role)
+    net_details = controller.add_key_prefix(
+        cluster_endpoint.network_details(), role)
     # update the config dict used as a context in rendering to have prefixed
     # keys for network details based on a current unit role (active or backup)
     controller_conf.update(net_details)
@@ -110,7 +104,8 @@ def configure_controller(*args):
         'endpoint.slurm-controller-ha.joined')
     if ha_endpoint:
         # add prefixed peer data
-        peer_data = add_key_prefix(ha_endpoint.peer_data, peer_role)
+        peer_data = controller.add_key_prefix(
+            ha_endpoint.peer_data, peer_role)
         controller_conf.update(peer_data)
     else:
         peer_data = None
@@ -119,19 +114,19 @@ def configure_controller(*args):
     # or a backup controller that knows about an active controller
     is_configurable = is_active or (not is_active and peer_data)
     if is_configurable:
-        log('The controller is configurable ({})'.format(role))
+        hookenv.log('The controller is configurable ({})'.format(role))
         # Setup slurm dirs and config
-        create_state_save_location(context=controller_conf)
-        render_slurm_config(context=controller_conf)
+        helpers.create_state_save_location(context=controller_conf)
+        helpers.render_slurm_config(context=controller_conf)
         # Make sure slurmctld is running
-        if not host.service_running(SLURMCTLD_SERVICE):
-            host.service_start(SLURMCTLD_SERVICE)
+        if not host.service_running(helpers.SLURMCTLD_SERVICE):
+            host.service_start(helpers.SLURMCTLD_SERVICE)
         flags.set_flag('slurm-controller.configured')
     else:
-        log('The controller is NOT configurable ({})'.format(role))
+        hookenv.log('The controller is NOT configurable ({})'.format(role))
         if not is_active:
             hookenv.status_set('maintenance',
-                           'Backup controller is waiting for peer data')
+                               'Backup controller is waiting for peer data')
 
     # Send config to nodes
     if is_active:
@@ -157,11 +152,11 @@ def controller_ready(cluster):
     hookenv.status_set('active', 'Ready')
 
 
-@reactive.when_file_changed(SLURM_CONFIG_PATH)
+@reactive.when_file_changed(helpers.SLURM_CONFIG_PATH)
 def restart_on_slurm_change():
-    host.service_restart(SLURMCTLD_SERVICE)
+    host.service_restart(helpers.SLURMCTLD_SERVICE)
 
 
-@reactive.when_file_changed(MUNGE_KEY_PATH)
+@reactive.when_file_changed(helpers.MUNGE_KEY_PATH)
 def restart_on_munge_change():
-    host.service_restart(MUNGE_SERVICE)
+    host.service_restart(helpers.MUNGE_SERVICE)
