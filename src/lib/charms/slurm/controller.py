@@ -40,7 +40,7 @@ def add_key_prefix(d, prefix):
 
 
 def is_active_controller():
-    return leadership.leader_get('active_controller') == hookenv.local_unit())
+    return leadership.leader_get('active_controller') == hookenv.local_unit()
 
 
 ROLES = {True: 'active_controller', False: 'backup_controller'}

@@ -1,4 +1,5 @@
 includes:
+  - 'layer:basic'
   - 'layer:slurm-v2'
   - 'layer:leadership'
   - 'interface:slurm-cluster-v2'

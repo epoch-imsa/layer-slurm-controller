@@ -1,32 +1,19 @@
+import copy
+import socket
 import charms.leadership as leadership
 import charms.reactive as reactive
 import charms.reactive.flags as flags
 import charmhelpers.core.hookenv as hookenv
 import charmhelpers.core.host as host
 import charms.reactive.relations as relations
-import copy
-
 import charms.slurm.helpers as helpers
 import charms.slurm.controller as controller
 
 
-@reactive.only_once()
-@reactive.when('slurm.installed')
-def initial_setup():
-    hookenv.status_set('maintenance', 'Initial setup of slurm-controller')
-    # Disable slurmd on controller
-    host.service_pause(helpers.SLURMD_SERVICE)
-
-    munge_key = hookenv.config().get('munge_key')
-
-    # Generate munge key if it has not been provided via charm config
-    # and update persistent configuration for future use.
-    # Munge key must be the same on all nodes in a given cluster so
-    # it will be provided to a backup controller and nodes via relations
-    if not munge_key:
-        munge_key = host.pwgen(length=4096)
-        hookenv.config().update({'munge_key': munge_key})
-    helpers.render_munge_key(context=hookenv.config())
+flags.register_trigger(when='config.changed.munge_key',
+                       clear_flag='slurm-controller.configured')
+flags.register_trigger(when='config.changed.munge_key',
+                       clear_flag='munge.configured')
 
 
 @reactive.when_not('endpoint.slurm-cluster.joined')
@@ -46,23 +33,64 @@ def set_active_controller():
     '''
     leadership.leader_set(active_controller=hookenv.local_unit())
 
+
 # TODO: add slurm DBD to when_any as this is something that
 
 # TODO: split configure_controller into stages as it is hard to read it, plus
 # it has logic for both HA handling and node workflow
 
-# cluster endpoint must be present for a controller to proceed with initial
-# configuration
+
+@reactive.when('leadership.set.active_controller')
+@reactive.when_not('munge.configured')
+def setup_munge_key():
+    if controller.is_active_controller():
+        munge_key = hookenv.config().get('munge_key')
+        # Generate a munge key if it has not been provided via charm config
+        # and update persistent configuration for future use on active
+        # controller only. The munge key must be the same on all nodes in
+        # a given cluster so it will be provided to a backup controller
+        # and nodes via leader data or relations
+        if not munge_key:
+            munge_key = host.pwgen(length=4096)
+        hookenv.leader_set(munge_key=munge_key)
+        # a leader does not receive leadership change events, moreover,
+        # no flags are set automatically so this has to be done here
+        # for other handles in the same execution to be triggered
+        initial_setup()
 
 
+@reactive.when('slurm.installed')
+@reactive.when('leadership.changed.munge_key')
+@reactive.when_not('slurm-controller.configured')
+@reactive.when_not('munge.configured')
+def initial_setup():
+    hookenv.status_set('maintenance', 'Setting up munge key')
+    # use leader-get here as this is executed on both active and
+    # backup controllers
+    munge_key = hookenv.leader_get('munge_key')
+    # Disable slurmd on controller
+    host.service_pause(helpers.SLURMD_SERVICE)
+    helpers.render_munge_key(context={'munge_key': munge_key})
+    flags.set_flag('munge.configured')
+
+
+@reactive.when('endpoint.slurm-controller-ha.joined')
+@reactive.when('leadership.set.active_controller')
+def handle_ha(ha_endpoint):
+    ''' Provide peer data in order to set up active-backup HA.'''
+    peer_data = {'hostname': socket.gethostname()}
+    ha_endpoint.provide_peer_data(peer_data)
+
+
+@reactive.when('munge.configured')
 @reactive.when('endpoint.slurm-cluster.joined')
 @reactive.when_any('endpoint.slurm-cluster.changed',
                    'endpoint.slurm-controller-ha.changed')
 @reactive.when('leadership.set.active_controller')
 def configure_controller(*args):
     ''' A controller is only configured after leader election is
-    performed.
-    '''
+    performed. Cluster endpoint must be present for a controller to
+    proceed with initial configuration'''
     hookenv.status_set('maintenance', 'Configuring slurm-controller')
 
     # need to have a role determined here so that a controller context can
@@ -92,6 +120,8 @@ def configure_controller(*args):
     controller_conf.update({
         'nodes': nodes,
         'partitions': partitions,
+        # for worker nodes
+        'munge_key': hookenv.leader_get('munge_key'),
     })
 
     net_details = controller.add_key_prefix(
