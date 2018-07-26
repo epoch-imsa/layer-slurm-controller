@@ -85,7 +85,9 @@ def handle_ha(ha_endpoint):
 @reactive.when('munge.configured')
 @reactive.when('endpoint.slurm-cluster.joined')
 @reactive.when_any('endpoint.slurm-cluster.changed',
-                   'endpoint.slurm-controller-ha.changed')
+                   'endpoint.slurm-cluster.departed',
+                   'endpoint.slurm-controller-ha.changed',
+                   'endpoint.slurm-controller-ha.departed')
 @reactive.when('leadership.set.active_controller')
 def configure_controller(*args):
     ''' A controller is only configured after leader election is
@@ -172,6 +174,10 @@ def configure_controller(*args):
             k: None for k in controller_conf.keys()
         })
 
+    # restart controller process on any changes
+    # TODO: this could be optimized via goal-state hook by
+    # observing "joining" node units
+    host.service_restart(helpers.SLURMCTLD_SERVICE)
     # clear the changed flag as it is not cleared automatically
     flags.clear_flag('endpoint.slurm-cluster.changed')
 
@@ -180,11 +186,6 @@ def configure_controller(*args):
 @reactive.when('slurm-controller.configured')
 def controller_ready(cluster):
     hookenv.status_set('active', 'Ready')
-
-
-@reactive.when_file_changed(helpers.SLURM_CONFIG_PATH)
-def restart_on_slurm_change():
-    host.service_restart(helpers.SLURMCTLD_SERVICE)
 
 
 @reactive.when_file_changed(helpers.MUNGE_KEY_PATH)
