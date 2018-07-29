@@ -10,10 +10,28 @@ import charms.slurm.helpers as helpers
 import charms.slurm.controller as controller
 
 
-flags.register_trigger(when='config.changed.munge_key',
-                       clear_flag='slurm-controller.configured')
-flags.register_trigger(when='config.changed.munge_key',
-                       clear_flag='munge.configured')
+flags.register_trigger(when='munge.configured',
+                       set_flag='slurm-controller.needs_restart')
+
+
+@reactive.when('slurm.installed')
+@reactive.when('slurm-controller.configured')
+@reactive.when('munge.configured')
+@reactive.when('slurm-controller.needs_restart')
+def handle_munge_change():
+    '''
+    A trigger sets needs_restart when munge.configured goes from unset to set
+    after a change. Need to handle this by restarting slurmctld service.
+    '''
+    hookenv.status_set('maintenance', 'Munge key changed, restarting service')
+    host.service_restart(helpers.SLURMCTLD_SERVICE)
+    flags.clear_flag('slurm-controller.needs_restart')
+
+
+@reactive.hook('upgrade-charm')
+def upgrade_charm():
+    # reconfigure on charm upgrade
+    flags.clear_flag('slurm-controller.configured')
 
 
 @reactive.when_not('endpoint.slurm-cluster.joined')
@@ -40,40 +58,6 @@ def set_active_controller():
 # it has logic for both HA handling and node workflow
 
 
-@reactive.when('leadership.set.active_controller')
-@reactive.when_not('munge.configured')
-def setup_munge_key():
-    if controller.is_active_controller():
-        munge_key = hookenv.config().get('munge_key')
-        # Generate a munge key if it has not been provided via charm config
-        # and update persistent configuration for future use on active
-        # controller only. The munge key must be the same on all nodes in
-        # a given cluster so it will be provided to a backup controller
-        # and nodes via leader data or relations
-        if not munge_key:
-            munge_key = host.pwgen(length=4096)
-        hookenv.leader_set(munge_key=munge_key)
-        # a leader does not receive leadership change events, moreover,
-        # no flags are set automatically so this has to be done here
-        # for other handles in the same execution to be triggered
-        initial_setup()
-
-
-@reactive.when('slurm.installed')
-@reactive.when('leadership.changed.munge_key')
-@reactive.when_not('slurm-controller.configured')
-@reactive.when_not('munge.configured')
-def initial_setup():
-    hookenv.status_set('maintenance', 'Setting up munge key')
-    # use leader-get here as this is executed on both active and
-    # backup controllers
-    munge_key = hookenv.leader_get('munge_key')
-    # Disable slurmd on controller
-    host.service_pause(helpers.SLURMD_SERVICE)
-    helpers.render_munge_key(context={'munge_key': munge_key})
-    flags.set_flag('munge.configured')
-
-
 @reactive.when('endpoint.slurm-controller-ha.joined')
 @reactive.when('leadership.set.active_controller')
 def handle_ha(ha_endpoint):
@@ -82,12 +66,14 @@ def handle_ha(ha_endpoint):
     ha_endpoint.provide_peer_data(peer_data)
 
 
+@reactive.when('slurm.installed')
 @reactive.when('munge.configured')
 @reactive.when('endpoint.slurm-cluster.joined')
 @reactive.when_any('endpoint.slurm-cluster.changed',
                    'endpoint.slurm-cluster.departed',
                    'endpoint.slurm-controller-ha.changed',
-                   'endpoint.slurm-controller-ha.departed')
+                   'endpoint.slurm-controller-ha.departed',
+                   'config.changed')
 @reactive.when('leadership.set.active_controller')
 def configure_controller(*args):
     ''' A controller is only configured after leader election is
@@ -150,10 +136,11 @@ def configure_controller(*args):
         # Setup slurm dirs and config
         helpers.create_state_save_location(context=controller_conf)
         helpers.render_slurm_config(context=controller_conf)
-        # Make sure slurmctld is running
-        if not host.service_running(helpers.SLURMCTLD_SERVICE):
-            host.service_start(helpers.SLURMCTLD_SERVICE)
         flags.set_flag('slurm-controller.configured')
+        # restart controller process on any changes
+        # TODO: this could be optimized via goal-state hook by
+        # observing "joining" node units
+        host.service_restart(helpers.SLURMCTLD_SERVICE)
     else:
         hookenv.log('The controller is NOT configurable ({})'.format(role))
         if not is_active:
@@ -174,10 +161,6 @@ def configure_controller(*args):
             k: None for k in controller_conf.keys()
         })
 
-    # restart controller process on any changes
-    # TODO: this could be optimized via goal-state hook by
-    # observing "joining" node units
-    host.service_restart(helpers.SLURMCTLD_SERVICE)
     # clear the changed flag as it is not cleared automatically
     flags.clear_flag('endpoint.slurm-cluster.changed')
 
@@ -186,8 +169,3 @@ def configure_controller(*args):
 @reactive.when('slurm-controller.configured')
 def controller_ready(cluster):
     hookenv.status_set('active', 'Ready')
-
-
-@reactive.when_file_changed(helpers.MUNGE_KEY_PATH)
-def restart_on_munge_change():
-    host.service_restart(helpers.MUNGE_SERVICE)
