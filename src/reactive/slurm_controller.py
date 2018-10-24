@@ -11,26 +11,28 @@ import charms.slurm.controller as controller
 
 
 flags.register_trigger(when='munge.configured',
-                       set_flag='slurm-controller.needs_restart')
+                       set_flag='slurm-controller.munge_updated')
 
 
-@reactive.when('slurm.installed')
-@reactive.when('slurm-controller.configured')
-@reactive.when('munge.configured')
-@reactive.when('slurm-controller.needs_restart')
-def handle_munge_change():
-    '''
-    A trigger sets needs_restart when munge.configured goes from unset to set
-    after a change. Need to handle this by restarting slurmctld service.
-    '''
-    hookenv.status_set('maintenance', 'Munge key changed, restarting service')
-    host.service_restart(helpers.SLURMCTLD_SERVICE)
-    flags.clear_flag('slurm-controller.needs_restart')
+#Unnecessary for now, we still need to run the configure_controller() to send munge_key to nodes
+#@reactive.when('slurm.installed')
+#@reactive.when('slurm-controller.configured')
+#@reactive.when('munge.configured')
+#@reactive.when('slurm-controller.needs_restart')
+#def handle_munge_change():
+#    '''
+#    A trigger sets needs_restart when munge.configured goes from unset to set
+#    after a change. Need to handle this by restarting slurmctld service.
+#    '''
+#    hookenv.status_set('maintenance', 'Munge key changed, restarting service')
+#    host.service_restart(helpers.SLURMCTLD_SERVICE)
+#    flags.clear_flag('slurm-controller.needs_restart')
 
 
 @reactive.hook('upgrade-charm')
 def upgrade_charm():
     # reconfigure on charm upgrade
+    flags.set_flag('slurm-controller.reconfigure')
     flags.clear_flag('slurm-controller.configured')
 
 
@@ -73,13 +75,16 @@ def handle_ha(ha_endpoint):
                    'endpoint.slurm-cluster.departed',
                    'endpoint.slurm-controller-ha.changed',
                    'endpoint.slurm-controller-ha.departed',
-                   'config.changed')
+                   'config.changed',
+                   'slurm-controller.reconfigure',
+                   'slurm-controller.munge_updated')
 @reactive.when('leadership.set.active_controller')
 def configure_controller(*args):
     ''' A controller is only configured after leader election is
     performed. Cluster endpoint must be present for a controller to
     proceed with initial configuration'''
     hookenv.status_set('maintenance', 'Configuring slurm-controller')
+    flags.clear_flag('slurm-controller.configured')
 
     # need to have a role determined here so that a controller context can
     # be uniformly prepared for consumption on the worker side as controller
@@ -137,6 +142,8 @@ def configure_controller(*args):
         helpers.create_state_save_location(context=controller_conf)
         helpers.render_slurm_config(context=controller_conf)
         flags.set_flag('slurm-controller.configured')
+        flags.clear_flag('slurm-controller.reconfigure')
+        flags.clear_flag('slurm-controller.munge_updated')
         # restart controller process on any changes
         # TODO: this could be optimized via goal-state hook by
         # observing "joining" node units

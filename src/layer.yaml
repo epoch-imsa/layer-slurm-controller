@@ -1,8 +1,8 @@
 includes:
   - 'layer:basic'
-  - 'layer:slurm-v2'
+  - 'layer:slurm'
   - 'layer:munge'
   - 'layer:leadership'
-  - 'interface:slurm-cluster-v2'
-  - 'interface:slurm-controller-ha-v2'
-repo: 'https://github.com/dshcherb/layer-slurm-controller-v2'
+  - 'interface:slurm-cluster'
+  - 'interface:slurm-controller-ha'
+repo: 'https://github.com/omnivector-solutions/layer-slurm-controller'
