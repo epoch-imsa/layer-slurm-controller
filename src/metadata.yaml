@@ -1,8 +1,10 @@
-name: slurm-controller-v2
-summary: Slurm Controller v2
+name: slurm-controller
+summary: SLURM Controller
 maintainer: Dmitrii Shcherbakov <dmitrii.shcherbakov@canonical.com>
 description: |
-  Slurm controller v2.
+    Slurm centralized manager, slurmctld. 
+    For a complete overview of SLURM, see:  https://slurm.schedmd.com/overview.html
+
 tags:
   - slurm
 subordinate: false
@@ -11,7 +13,10 @@ series:
   - xenial
 provides:
   slurm-cluster:
-    interface: slurm-cluster-v2
+    interface: slurm-cluster
+requires:
+  slurm-dbd-consumer:
+    interface: slurm-dbd
 peers:
   slurm-controller-ha:
-    interface: slurm-controller-ha-v2
+    interface: slurm-controller-ha
