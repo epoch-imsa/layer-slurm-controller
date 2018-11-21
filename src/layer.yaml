@@ -3,6 +3,7 @@ includes:
   - 'layer:slurm'
   - 'layer:munge'
   - 'layer:leadership'
+  - 'interface:slurm-dbd'
   - 'interface:slurm-cluster'
   - 'interface:slurm-controller-ha'
 repo: 'https://github.com/omnivector-solutions/layer-slurm-controller'

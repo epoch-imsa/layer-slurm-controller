@@ -175,3 +175,17 @@ options:
     description: >-
       "The level of detail to provide slurmd daemon's logs. The default value is
       info."
+  select_type:
+    type: string
+    default: select/linear
+    description: >-
+      "What type of SelectType to use in the configuration file. The default
+      value is select/linear. Other possible values are select/cons_res,
+      select/cray, select/serial."
+  select_type_parameters:
+    type: string
+    default: CR_Core
+    description: >-
+            "What type of SelectTypeParameters to use. The default value is
+            CR_Core. Other possible values are CR_Core_Memory, CR_CPU, 
+            CR_CPU_Memory, CR_Socket, CR_Socket_Memory"
