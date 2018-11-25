@@ -1,6 +1,6 @@
 name: slurm-controller
 summary: SLURM Controller
-maintainer: Dmitrii Shcherbakov <dmitrii.shcherbakov@canonical.com>
+maintainer: Omnivector Solutions <info@omnivector.solutions>
 description: |
     Slurm centralized manager, slurmctld. 
     For a complete overview of SLURM, see:  https://slurm.schedmd.com/overview.html

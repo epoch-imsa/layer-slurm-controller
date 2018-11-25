@@ -1,7 +1,7 @@
 # VARIABLES
 export PATH := /snap/bin:$(PATH)
 export CHARM_NAME := slurm-controller
-export CHARM_STORE_GROUP := slurm-charmers
+export CHARM_STORE_GROUP := omnivector
 export CHARM_BUILD_DIR := ./build/builds
 export CHARM_DEPS_DIR := ./build/deps
 export CHARM_PUSH_RESULT := charm-store-push-result.txt
