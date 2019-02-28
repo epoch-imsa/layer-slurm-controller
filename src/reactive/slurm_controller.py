@@ -150,25 +150,20 @@ def configure_controller(*args):
         })
 
 
-
-
     es_endpoint = relations.endpoint_from_flag(
         'elasticsearch.available')
         
     if es_endpoint:
-        hookenv.log('Getting elastic data since flag elasticsearch.available XXX')
-        elastic_host = es_endpoint.host()
-        elastic_port = es_endpoint.port()
-#         elastic_cluster_name = es_endpoint.cluster_name()
-        hookenv.log('XXX Elastic host %s' % elastic_host)
-        hookenv.log('XXX Elastic port %s' % elastic_port)
+        for unit in es_endpoint.list_unit_data():
+            elastic_host = unit['host']
+            elastic_port = unit['port']
         controller_conf.update({
             'elastic_host': elastic_host,
             'elastic_port': elastic_port,
         })
-        hookenv.log("Ehost XXX %s" % elastic_host)
+        hookenv.log(("elasticsearch available, using %s:%s from endpoint relation.") % (elastic_host,elastic_port))
     else:
-        hookenv.log('No endpoint for Elastic available XXX')
+        hookenv.log('No endpoint for elasticsearch available')
         
         
     # In case we are here due to DBD join or charm config change, announce this to the nodes
