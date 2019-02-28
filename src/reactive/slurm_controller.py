@@ -75,6 +75,7 @@ def handle_ha(ha_endpoint):
 @reactive.when('slurm.installed')
 @reactive.when('munge.configured')
 @reactive.when('endpoint.slurm-cluster.joined')
+@reactive.when('elasticsearch.available')
 @reactive.when_any('endpoint.slurm-cluster.changed',
                    'endpoint.slurm-cluster.departed',
                    'endpoint.slurm-controller-ha.changed',
@@ -148,6 +149,28 @@ def configure_controller(*args):
             'dbd_ipaddr': leadership.leader_get('dbd_ipaddr')
         })
 
+
+
+
+    es_endpoint = relations.endpoint_from_flag(
+        'elasticsearch.available')
+        
+    if es_endpoint:
+        hookenv.log('Getting elastic data since flag elasticsearch.available XXX')
+        elastic_host = es_endpoint.host()
+        elastic_port = es_endpoint.port()
+#         elastic_cluster_name = es_endpoint.cluster_name()
+        hookenv.log('XXX Elastic host %s' % elastic_host)
+        hookenv.log('XXX Elastic port %s' % elastic_port)
+        controller_conf.update({
+            'elastic_host': elastic_host,
+            'elastic_port': elastic_port,
+        })
+        hookenv.log("Ehost XXX %s" % elastic_host)
+    else:
+        hookenv.log('No endpoint for Elastic available XXX')
+        
+        
     # In case we are here due to DBD join or charm config change, announce this to the nodes
     # by changing the value of slurm_config_updated
     if flags.is_flag_set('slurm.dbd_host_updated') or flags.is_flag_set('config.changed'):
