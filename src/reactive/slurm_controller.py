@@ -75,7 +75,6 @@ def handle_ha(ha_endpoint):
 @reactive.when('slurm.installed')
 @reactive.when('munge.configured')
 @reactive.when('endpoint.slurm-cluster.joined')
-@reactive.when('elasticsearch.available')
 @reactive.when_any('endpoint.slurm-cluster.changed',
                    'endpoint.slurm-cluster.departed',
                    'endpoint.slurm-controller-ha.changed',
@@ -83,7 +82,8 @@ def handle_ha(ha_endpoint):
                    'config.changed',
                    'slurm-controller.reconfigure',
                    'slurm-controller.munge_updated',
-                   'slurm.dbd_host_updated')
+                   'slurm.dbd_host_updated',
+                   'elasticsearch.available')
 @reactive.when('leadership.set.active_controller')
 def configure_controller(*args):
     ''' A controller is only configured after leader election is
