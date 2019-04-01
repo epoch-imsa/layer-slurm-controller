@@ -154,6 +154,7 @@ def configure_controller(*args):
         ts = time.time()
         hookenv.log('slurm.conf on controller was updated on %s, annoucing to nodes' % ts)
         controller_conf.update({ 'slurm_config_updated': ts })
+        flags.clear_flag('slurm.dbd_host_updated')
 
     # a controller service is configurable if it is an active controller
     # or a backup controller that knows about an active controller
