@@ -85,6 +85,7 @@ def handle_ha(ha_endpoint):
                    'slurm.dbd_host_updated',
                    'elasticsearch.available')
 @reactive.when('leadership.set.active_controller')
+@reactive.when_not('config.changed.clustername')
 def configure_controller(*args):
     ''' A controller is only configured after leader election is
     performed. Cluster endpoint must be present for a controller to
@@ -126,6 +127,12 @@ def configure_controller(*args):
     # the whole charm config will be sent to related nodes
     # with some additional options added via dict update
     controller_conf = copy.deepcopy(hookenv.config())
+    # if controller cluster config include file exists, add contents to controller_conf dict
+    slurmconf_include = '%s/slurm-%s.conf' % (helpers.SLURM_CONFIG_DIR, hookenv.config().get('clustername'))
+    if os.path.exists(slurmconf_include):
+        f = open(slurmconf_include, "r")
+        controller_conf.update({'include': f.read()})
+        f.close()
     controller_conf.update({
         'nodes': nodes,
         'partitions': partitions,
@@ -180,8 +187,9 @@ def configure_controller(*args):
     # by changing the value of slurm_config_updated
     if flags.is_flag_set('slurm.dbd_host_updated') or flags.is_flag_set('config.changed'):
         ts = time.time()
-        hookenv.log('slurm.conf on controller was updated on %s, annoucing to nodes' % ts)
+        hookenv.log('Slurm configuration on controller was updated on %s, annoucing to nodes' % ts)
         controller_conf.update({ 'slurm_config_updated': ts })
+        flags.clear_flag('slurm.dbd_host_updated')
 
     # a controller service is configurable if it is an active controller
     # or a backup controller that knows about an active controller
@@ -190,7 +198,7 @@ def configure_controller(*args):
         hookenv.log('The controller is configurable ({})'.format(role))
         # Setup slurm dirs and config
         helpers.create_state_save_location(context=controller_conf)
-        helpers.render_slurm_config(context=controller_conf)
+        helpers.render_slurm_config(context=controller_conf, active_controller=is_active)
         flags.set_flag('slurm-controller.configured')
         flags.clear_flag('slurm-controller.reconfigure')
         flags.clear_flag('slurm-controller.munge_updated')
@@ -250,8 +258,8 @@ def change_clustername():
         os.remove('/var/spool/slurm.state/clustername')
     flags.clear_flag('slurm-controller.dbdname-requested')
     flags.clear_flag('slurm-controller.dbdname-accepted')
-    # May be unnecessary at the moment, but...
     flags.clear_flag('config.changed.clustername')
+    flags.set_flag('slurm-controller.reconfigure')
 
 @reactive.when('endpoint.slurm-dbd-consumer.dbd_host_updated')
 @reactive.when('leadership.is_leader')
@@ -269,3 +277,11 @@ def consume_dbd_host_change(dbd_consumer):
     flags.clear_flag('endpoint.slurm-dbd-consumer.dbd_host_updated')
     # Announce to configure_controller that the nodes need new information
     flags.set_flag('slurm.dbd_host_updated')
+
+@reactive.when_file_changed('%s/slurm-%s.conf' % (helpers.SLURM_CONFIG_DIR, hookenv.config().get('clustername')))
+def included_config_changed():
+    # Seems it is not possible to have a @when('leadership.is_leader') together with when_file_changed()
+    if flags.is_flag_set('leadership.is_leader'):
+        hookenv.log('Should restart slurmctld due to changed file %s/slurm-%s.conf on disk' %
+                (helpers.SLURM_CONFIG_DIR, hookenv.config().get('clustername')))
+        flags.set_flag('slurm-controller.reconfigure')
