@@ -11,12 +11,16 @@ subordinate: false
 series:
   - bionic
   - xenial
+  - disco
 provides:
   slurm-cluster:
     interface: slurm-cluster
 requires:
   slurm-dbd-consumer:
     interface: slurm-dbd
+  elasticsearch:
+    interface: elasticsearch
+    optional: true
 peers:
   slurm-controller-ha:
     interface: slurm-controller-ha
