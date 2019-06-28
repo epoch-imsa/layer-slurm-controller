@@ -82,7 +82,8 @@ def handle_ha(ha_endpoint):
                    'config.changed',
                    'slurm-controller.reconfigure',
                    'slurm-controller.munge_updated',
-                   'slurm.dbd_host_updated')
+                   'slurm.dbd_host_updated',
+                   'elasticsearch.available')
 @reactive.when('leadership.set.active_controller')
 @reactive.when_not('config.changed.clustername')
 def configure_controller(*args):
@@ -107,6 +108,16 @@ def configure_controller(*args):
     # Get node configs
     nodes = cluster_endpoint.get_node_data()
     partitions = controller.get_partitions(nodes)
+
+    # Implementation of automatic node weights
+    node_weight_criteria = hookenv.config().get('node_weight_criteria')
+    if node_weight_criteria != 'none':
+        weightres = controller.set_node_weight_criteria(node_weight_criteria, nodes)
+        # If the weight configuration is incorrect, abort reconfiguration. Status
+        # will be set to blocked with an informative message. The controller charm
+        # will keep running.
+        if not weightres:
+            return
 
     # relation-changed does not necessarily mean that data will be provided
     if not partitions:
@@ -155,6 +166,23 @@ def configure_controller(*args):
             'dbd_ipaddr': leadership.leader_get('dbd_ipaddr')
         })
 
+
+    es_endpoint = relations.endpoint_from_flag(
+        'elasticsearch.available')
+        
+    if es_endpoint:
+        for unit in es_endpoint.list_unit_data():
+            elastic_host = unit['host']
+            elastic_port = unit['port']
+        controller_conf.update({
+            'elastic_host': elastic_host,
+            'elastic_port': elastic_port,
+        })
+        hookenv.log(("elasticsearch available, using %s:%s from endpoint relation.") % (elastic_host,elastic_port))
+    else:
+        hookenv.log('No endpoint for elasticsearch available')
+        
+        
     # In case we are here due to DBD join or charm config change, announce this to the nodes
     # by changing the value of slurm_config_updated
     if flags.is_flag_set('slurm.dbd_host_updated') or flags.is_flag_set('config.changed'):
