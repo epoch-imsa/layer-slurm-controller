@@ -107,6 +107,16 @@ def configure_controller(*args):
     nodes = cluster_endpoint.get_node_data()
     partitions = controller.get_partitions(nodes)
 
+    # Implementation of automatic node weights
+    node_weight_criteria = hookenv.config().get('node_weight_criteria')
+    if node_weight_criteria != 'none':
+        weightres = controller.set_node_weight_criteria(node_weight_criteria, nodes)
+        # If the weight configuration is incorrect, abort reconfiguration. Status
+        # will be set to blocked with an informative message. The controller charm
+        # will keep running.
+        if not weightres:
+            return
+
     # relation-changed does not necessarily mean that data will be provided
     if not partitions:
         flags.clear_flag('endpoint.slurm-cluster.changed')
