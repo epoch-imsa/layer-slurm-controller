@@ -14,23 +14,10 @@ import charms.slurm.controller as controller
 from charms.reactive import endpoint_from_flag
 
 
-flags.register_trigger(when='munge.configured',
-                       set_flag='slurm-controller.munge_updated')
-
-
-#Unnecessary for now, we still need to run the configure_controller() to send munge_key to nodes
-#@reactive.when('slurm.installed')
-#@reactive.when('slurm-controller.configured')
-#@reactive.when('munge.configured')
-#@reactive.when('slurm-controller.needs_restart')
-#def handle_munge_change():
-#    '''
-#    A trigger sets needs_restart when munge.configured goes from unset to set
-#    after a change. Need to handle this by restarting slurmctld service.
-#    '''
-#    hookenv.status_set('maintenance', 'Munge key changed, restarting service')
-#    host.service_restart(helpers.SLURMCTLD_SERVICE)
-#    flags.clear_flag('slurm-controller.needs_restart')
+flags.register_trigger(
+    when='munge.configured',
+    set_flag='slurm-controller.munge_updated'
+)
 
 
 @reactive.hook('upgrade-charm')
@@ -82,8 +69,7 @@ def handle_ha(ha_endpoint):
                    'config.changed',
                    'slurm-controller.reconfigure',
                    'slurm-controller.munge_updated',
-                   'slurm.dbd_host_updated',
-                   'elasticsearch.available')
+                   'slurm.dbd_host_updated')
 @reactive.when('leadership.set.active_controller')
 @reactive.when_not('config.changed.clustername')
 def configure_controller(*args):
@@ -166,23 +152,6 @@ def configure_controller(*args):
             'dbd_ipaddr': leadership.leader_get('dbd_ipaddr')
         })
 
-
-    es_endpoint = relations.endpoint_from_flag(
-        'elasticsearch.available')
-        
-    if es_endpoint:
-        for unit in es_endpoint.list_unit_data():
-            elastic_host = unit['host']
-            elastic_port = unit['port']
-        controller_conf.update({
-            'elastic_host': elastic_host,
-            'elastic_port': elastic_port,
-        })
-        hookenv.log(("elasticsearch available, using %s:%s from endpoint relation.") % (elastic_host,elastic_port))
-    else:
-        hookenv.log('No endpoint for elasticsearch available')
-        
-        
     # In case we are here due to DBD join or charm config change, announce this to the nodes
     # by changing the value of slurm_config_updated
     if flags.is_flag_set('slurm.dbd_host_updated') or flags.is_flag_set('config.changed'):
