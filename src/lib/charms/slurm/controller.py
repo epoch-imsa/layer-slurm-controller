@@ -30,6 +30,7 @@ def get_partitions(node_data):
         part_dict[node['partition']].setdefault('hosts', [])
         part_dict[node['partition']]['hosts'].append(node['hostname'])
         part_dict[node['partition']]['default'] = node['default']
+        part_dict[node['partition']]['timelimit'] = node['timelimit']
     return dict(part_dict)
 
 
